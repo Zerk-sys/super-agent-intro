@@ -25,3 +25,7 @@ cf deploy
 https://super-agent-intro.robintoken177.workers.dev
 
 Worker 名称：super-agent-intro，版本 ID：bba5af41-f666-445c-af1f-a2abad28d139（2026-11-02 部署）。
+
+## 自动部署
+
+已接通 Cloudflare Workers Builds：向 main 分支推送即自动构建并部署（构建命令为空，部署命令为 `npx wrangler deploy`，根目录 `/`）。
