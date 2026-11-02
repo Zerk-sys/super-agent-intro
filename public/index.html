@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepSeek dsh-superagent：Super-agent 研究原型介绍</title>
+<meta name="description" content="介绍 DeepSeek Harness 团队 2026 年 10 月 31 日发布的 dsh-superagent 研究原型：面向单个 GitHub 仓库的主动式 Coding Agent，Router 与 Worker 架构。">
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#0b1220;color:#e6edf3;line-height:1.7}
+a{color:#7dd3fc}
+.wrap{max-width:920px;margin:0 auto;padding:32px 20px 64px}
+header{padding:28px 0 8px}
+.eyebrow{color:#7dd3fc;font-weight:700;letter-spacing:.08em;font-size:14px}
+h1{font-size:38px;line-height:1.25;margin:12px 0}
+.lead{font-size:18px;color:#cbd5e1}
+.warn{background:#3b1d1d;border:1px solid #7f2d2d;border-radius:12px;padding:16px 18px;margin:24px 0}
+.warn strong{color:#fca5a5}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:24px 0}
+.card{background:#111c30;border:1px solid #24344d;border-radius:12px;padding:16px}
+.card b{display:block;color:#93c5fd;font-size:13px;margin-bottom:4px}
+.card span{font-size:16px}
+h2{margin:36px 0 10px;font-size:24px}
+h3{margin:20px 0 6px;font-size:18px}
+ul{padding-left:20px}
+li{margin:6px 0}
+.flow{background:#111c30;border:1px solid #24344d;border-radius:12px;padding:18px}
+.flow ol{padding-left:20px;margin:0}
+.flow li{margin:10px 0}
+.numbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.num{font-size:32px;font-weight:800;color:#7dd3fc}
+.note{color:#94a3b8;font-size:14px}
+footer{margin-top:48px;border-top:1px solid #24344d;padding-top:16px;color:#94a3b8;font-size:14px}
+code{background:#1e293b;padding:2px 6px;border-radius:6px}
+@media(max-width:600px){h1{font-size:30px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">DEEPSEEK HARNESS · 2026-10-31 发布</div>
+<h1>DeepSeek dsh-superagent<br>Super-agent 研究原型</h1>
+<p class="lead">一句话：一个面向<strong>单个 GitHub 仓库</strong>的主动式 Coding Agent。它不等人逐条下指令，而是常驻在线、并行推进多项工作，最后回到原对话交付，比如提交一个 Pull Request。</p>
+<p><a href="https://github.com/deepseek-ai/dsh-superagent-prototype">官方仓库：deepseek-ai/dsh-superagent-prototype</a></p>
+</header>
+
+<div class="warn"><strong>先说清楚定位：这不是正式产品。</strong>官方 README 原话是“Research prototype for reference only, not an official DeepSeek product”，并提醒：代码可能仍有 bug、工程风格可能不一致、与内部版本不完全相同、设计文章里的部分想法尚未实现。把它当成架构探索和研究代码，而不是开箱即用的生产工具。</div>
+
+<section>
+<h2>关键事实</h2>
+<div class="grid">
+<div class="card"><b>发布方</b><span>DeepSeek Harness 团队</span></div>
+<div class="card"><b>发布时间</b><span>2026 年 10 月 31 日</span></div>
+<div class="card"><b>仓库版本</b><span>v0.1.0 · TypeScript</span></div>
+<div class="card"><b>开源协议</b><span>MIT</span></div>
+<div class="card"><b>运行形式</b><span>DeepSeek Harness 的 Bundle</span></div>
+<div class="card"><b>设计文章</b><span>Exploring Super-agent Design: Towards a More Autonomous Agent System</span></div>
+</div>
+<p class="note">仓库热度会快速变化：截至 2026 年 11 月 2 日晚间检索时，官方仓库约 11,118 星、1,135 Fork，以官方仓库实时数字为准。</p>
+</section>
+
+<section>
+<h2>它想解决什么问题</h2>
+<p>DeepSeek 的判断不是“模型还不够强”，而是<strong>人的注意力成了瓶颈</strong>。一个人同时盯三到五个 Agent 会话就已经吃力，任务越多，上下文同步、进度跟踪、结果检查的负担越重。Super-agent 的做法是把“会话管理”本身交给系统：人不用逐个会话去调度，系统负责分派、同步和交付，人只在真正需要决策或结果可用时介入。</p>
+<p>官方给出的工作原则是：<strong>尽量少占用人的注意力，尽量多给价值。</strong>它只在被要求、或团队写好的规则允许时行动；也只在有人必须行动、或结果可用时才说话。</p>
+</section>
+
+<section>
+<h2>它是怎么工作的</h2>
+<div class="flow">
+<ol>
+<li><strong>监听：</strong>监听一个 GitHub 仓库，也可以选择接入飞书群聊。</li>
+<li><strong>接活：</strong>被授权的人提出需求，或者团队预先写好的规则命中，系统就开一个工单（Ticket）。</li>
+<li><strong>并行干活：</strong>每个工单在自己独立的 Agent 会话和目录里执行，互不干扰，可以多项任务并行。</li>
+<li><strong>回原处交付：</strong>做完后回到原来的对话交付，例如提交一个 Pull Request；Web 面板会集中显示需要人工决策的事项。</li>
+</ol>
+</div>
+<h3>Router 与 Worker 两层</h3>
+<ul>
+<li><strong>Router（常驻）：</strong>负责收消息、分派任务、保持全局连续性，相当于“总调度”。</li>
+<li><strong>Worker（隔离并行）：</strong>每个任务一个独立会话，负责真正写代码、跑检查，上下文相互隔离。</li>
+</ul>
+<p>这种拆分的好处是：多任务并行时，人不用在多个会话之间来回切换、自己拼上下文；风险是：权限、凭证和每一份 PR 都必须经过人的检查，不能把整个仓库无条件交给它。</p>
+</section>
+
+<section>
+<h2>初步实验数字：怎么读才不被带偏</h2>
+<p>团队公布的初步实验是在<strong>模拟条件</strong>下做的：约 300 条模拟消息、约 20 项工作请求。结果如下：</p>
+<div class="numbers">
+<div class="card"><div class="num">12.4 分钟</div><span>Super-agent 任务完成时间 p50</span></div>
+<div class="card"><div class="num">15.7 分钟</div><span>Super-agent 任务完成时间 p95</span></div>
+<div class="card"><div class="num">29.5 分钟</div><span>单会话 + Subagent 对照组 p95（中性提示）</span></div>
+</div>
+<p><strong>正确读法：</strong>这是一组团队自报的初步实验，不是独立基准，也没有测量真实代码质量。模拟消息和模拟工具的结果，不能直接等同于真实团队、真实代码库里的效果。看这组数字的意义在于“并行分派可能缩短等待时间”，而不是“它已经比所有现有工具更强”。</p>
+</section>
+
+<section>
+<h2>适合怎么用，不适合怎么用</h2>
+<h3>适合先这样试点</h3>
+<ul>
+<li>在沙箱或非关键仓库里跑，人工逐份审 PR 再合并。</li>
+<li>先从“被明确要求才动手”的模式开始，规则写清楚再放宽。</li>
+<li>按官方仓库的 SETUP.md 一步步部署，官方也建议让 Coding Agent 按 SETUP.md 带着做，因为步骤不少。</li>
+</ul>
+<h3>不建议直接这样用</h3>
+<ul>
+<li>直接部署到生产仓库、给它宽泛权限、且不审 PR 就合并。</li>
+<li>把它当成 DeepSeek 正式产品或现成服务来采购、承诺交付。</li>
+<li>只看“能自己开 PR”就忽略它的原型警告：bug、与内部版本差异、未实现的设计都写在 README 里。</li>
+</ul>
+</section>
+
+<section>
+<h2>来源</h2>
+<ul>
+<li><a href="https://github.com/deepseek-ai/dsh-superagent-prototype">DeepSeek 官方仓库 deepseek-ai/dsh-superagent-prototype（含 README 与 docs/000–008）</a></li>
+<li>设计文章：Exploring Super-agent Design: Towards a More Autonomous Agent System（DeepSeek Harness 团队）</li>
+</ul>
+<p class="note">本页是第三方介绍页，不是 DeepSeek 官方页面。关键事实以官方仓库为准，实验数字为团队自报的初步结果，仓库星数等热度数字会随时间变化。</p>
+</section>
+
+<footer>制作：介绍页 · 数据核对时间 2026-11-02 · 部署：Cloudflare Workers 静态资源</footer>
+</div>
+</body>
+</html>
